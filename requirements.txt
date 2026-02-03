@@ -1,0 +1,10 @@
+requests~=2.32.4
+python-dotenv
+spacy~=3.8.11
+tqdm
+tenacity~=8.2.3
+uvicorn~=0.38.0
+fastapi~=0.124.4
+pymysql~=1.1.2
+holoviews~=1.19.1
+beautifulsoup4~=4.12.3
