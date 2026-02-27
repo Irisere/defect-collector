@@ -1,9 +1,29 @@
+import base64
 import os
 from datetime import datetime
 
 import pymysql
 from pymysql.err import OperationalError
+
 from typing import Optional
+from Crypto.Cipher import AES
+
+class TokenDecryptor:
+    KEY = b'1234567812345678' # 必须与 Java 一致
+    IV = b'8765432187654321'  # 必须与 Java 一致
+
+    @staticmethod
+    def decrypt(encrypted_data):
+        try:
+            raw_data = base64.b64decode(encrypted_data)
+            cipher = AES.new(TokenDecryptor.KEY, AES.MODE_CBC, TokenDecryptor.IV)
+            # 解密并去除 PKCS7 填充
+            decrypted = cipher.decrypt(raw_data)
+            padding_len = decrypted[-1]
+            return decrypted[:-padding_len].decode('utf-8')
+        except Exception as e:
+            print(f"解密失败: {e}")
+            return None
 
 # 从环境变量读取 MySQL 配置
 MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
@@ -69,7 +89,9 @@ class MySQLClient:
             with connection.cursor() as cursor:
                 cursor.execute(sql, (platform,))  # 参数化查询，防止SQL注入
                 result = cursor.fetchone()  # 获取单条结果（字典格式）
-                return result['token'] if result else None
+                if result:
+                    return TokenDecryptor.decrypt(result['token'])
+                return None
         except Exception as e:
             # 可根据业务需求添加日志记录
             raise RuntimeError(f"查询token失败：{str(e)}")
