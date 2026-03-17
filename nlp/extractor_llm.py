@@ -1,25 +1,29 @@
 # nlp/extractor_llm.py
 # 基于LLM的信息提取
 import json
+import logging
 import re
 import time
-import logging
-import requests
 from typing import Dict
+
+import requests
 from tenacity import (
     retry,
     stop_after_attempt,
     wait_exponential,
     retry_if_exception_type,
 )
+
 from .schema import DEFAULT_SCHEMA
 
 # OpenRouter 配置
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = (
+    "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"
+)
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 # 使用的模型
 # DEFAULT_MODEL = "tngtech/deepseek-r1t2-chimera:free" #28秒
-DEFAULT_MODEL = "xiaomi/mimo-v2-flash:free" #3.04秒
+DEFAULT_MODEL = "xiaomi/mimo-v2-flash:free"  # 3.04秒
 # DEFAULT_MODEL = "alibaba/tongyi-deepresearch-30b-a3b:free" #3.40秒
 # DEFAULT_MODEL = "qwen/qwen3-coder:free" #12.94秒
 
@@ -33,7 +37,7 @@ PROMPT_TEMPLATES = {
 - description: 缺陷详细描述（完整说明问题现象）
 - version: 缺陷出现的软件版本号（无则为空字符串）
 - severity: 缺陷严重程度（可选值：Critical, High, Medium, Low, UnKnow）
-- steps_to_reproduce: 复现步骤（数组格式，每个元素为一个步骤）
+- steps_to_reproduce: 复现步骤（无则为空字符串）
 - stack_trace: 堆栈跟踪信息
 
 缺陷报告文本：
@@ -55,7 +59,7 @@ Field description to extract:
 - description: Detailed description of the defect (complete explanation of the problem phenomenon)
 - version: Software version number where the defect occurred (empty string if none)
 - severity: Defect severity (optional values: Critical, High, Medium, Low, UnKnow)
-- steps_to_reproduce: Steps to reproduce (array format, each element is a step)
+- steps_to_reproduce: Steps to reproduce (empty string if none)
 - stack_trace: Stack trace information
 
 Defect report text:
@@ -68,13 +72,13 @@ Output requirements:
 4. steps_to_reproduce must be an array type (return [] even if empty);
 5. The language of the output field values must be consistent with the input text.
 6. Do not infer information that is not explicitly stated in the text (e.g., severity).
-"""
+""",
 }
 
 # 多语言系统提示词
 SYSTEM_PROMPTS = {
     "zh": "你是一个专业的缺陷信息提取助手，严格按照要求输出 JSON 格式数据，输出内容的语言需与用户输入文本保持一致。",
-    "en": "You are a professional defect information extraction assistant, strictly output JSON format data as required, and the language of the output content must be consistent with the user's input text."
+    "en": "You are a professional defect information extraction assistant, strictly output JSON format data as required, and the language of the output content must be consistent with the user's input text.",
 }
 
 # 配置日志
@@ -108,14 +112,15 @@ def detect_language(text: str) -> str:
         return "zh"  # 默认中文
 
     # 匹配中文字符
-    chinese_chars = re.findall(r'[\u4e00-\u9fff]', text)
-    total_chars = len(re.sub(r'\s+', '', text))  # 去除空白字符后的总字符数
+    chinese_chars = re.findall(r"[\u4e00-\u9fff]", text)
+    total_chars = len(re.sub(r"\s+", "", text))  # 去除空白字符后的总字符数
 
     if total_chars == 0:
         return "zh"
 
     chinese_ratio = len(chinese_chars) / total_chars
     return "zh" if chinese_ratio > 0.2 else "en"
+
 
 def validate_extraction(result: Dict, schema: Dict = DEFAULT_SCHEMA) -> Dict:
     """
@@ -133,6 +138,7 @@ def validate_extraction(result: Dict, schema: Dict = DEFAULT_SCHEMA) -> Dict:
             validated[key] = validated[key][:5000].strip()
     return validated
 
+
 @retry(**RETRY_CONFIG)
 def call_llm(text: str, model: str = DEFAULT_MODEL) -> str:
     """
@@ -149,7 +155,7 @@ def call_llm(text: str, model: str = DEFAULT_MODEL) -> str:
     # 构建请求头（参考 OpenRouter 示例）
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
 
     # 构建请求体
@@ -173,7 +179,7 @@ def call_llm(text: str, model: str = DEFAULT_MODEL) -> str:
             url=OPENROUTER_URL,
             headers=headers,
             data=json.dumps(payload),
-            timeout=30  # 请求超时时间
+            timeout=30,  # 请求超时时间
         )
 
         # ========== 计算请求耗时 ==========
@@ -204,11 +210,7 @@ def call_llm(text: str, model: str = DEFAULT_MODEL) -> str:
         raise
 
 
-def llm_extract(
-        text: str,
-        model: str = DEFAULT_MODEL,
-        validate: bool = True
-) -> Dict:
+def llm_extract(text: str, model: str = DEFAULT_MODEL, validate: bool = True) -> Dict:
     """
     将文本提交到 LLM 以 JSON 格式抽取字段
     """
