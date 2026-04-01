@@ -1,17 +1,26 @@
+import logging
 import os
-import requests
+import time
 from urllib.parse import quote
-from datetime import datetime, timezone
+
+import requests
+
 from .collector_base import CollectorBase
+
+logger = logging.getLogger(__name__)
 
 GITLAB_API = "https://gitlab.com/api/v4"
 
 
 class GitLabCollector(CollectorBase):
     def __init__(self, token=None, owner=None, repo=None, project_id=None):
+        # 继承基类，确保 self.duplicate_checker 和 self.repo_id 可用
+        super().__init__()
         self.token = token or os.getenv("GITLAB_TOKEN")
         self.owner = owner
         self.repo = repo
+
+        # GitLab 特有的项目标识处理
         if self.owner and self.repo:
             self.project_path = quote(f"{self.owner}/{self.repo}", safe="")
         else:
@@ -23,95 +32,84 @@ class GitLabCollector(CollectorBase):
 
     def fetch_recent(self, state="opened", per_page=100, since=None, until=None):
         """
-        拉取指定时间段的 GitLab Issues（修复 400 错误 + 解决分页信息缺失问题）
+        参照 GitHub 逻辑：分页抓取 + 服务端过滤 + 本地去重
         """
+        if state == "open":
+            state = "opened"
         if not (self.project_path or (self.owner and self.repo)):
             raise ValueError("必须指定 GitLab 仓库的 owner + repo 或 project_id！")
 
-        # 优先使用 project_path，无则拼接 owner/repo
         project_path = self.project_path or f"{self.owner}/{self.repo}"
         url = f"{GITLAB_API}/projects/{project_path}/issues"
 
-        # 移除非法的 sort 参数，仅保留 order_by + 正确的 sort 取值
+        # 1. 构建请求参数（GitLab 不像 GitHub 有专门的 Search API 语法，
+        # 但普通 Issues API 支持时间过滤参数）
         params = {
             "state": state,
-            "per_page": min(per_page, 100),  # GitLab 最大支持100/页，减少分页请求
             "order_by": "created_at",
             "sort": "asc",
-            "page": 1  # 初始化页码，用于分页
+            "per_page": min(per_page, 100),
+            "page": 1,
         }
 
-        # 时间格式改为 GitLab 兼容的格式（用 Z 替代 +00:00）
+        # 时间参数转换（GitLab 需要 ISO8601 格式）
         if since:
-            try:
-                since_dt = datetime.strptime(since, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                params["created_after"] = since_dt.isoformat().replace("+00:00", "Z")
-            except ValueError:
-                params["created_after"] = since.replace("+00:00", "Z")
-
+            params["created_after"] = since if "T" in since else f"{since}T00:00:00Z"
         if until:
-            try:
-                until_dt = datetime.strptime(until, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                params["created_before"] = until_dt.isoformat().replace("+00:00", "Z")
-            except ValueError:
-                raise ValueError(f"until 参数格式错误，请使用 YYYY-MM-DD 或 ISO 格式，当前值：{until}")
+            params["created_before"] = until if "T" in until else f"{until}T23:59:59Z"
 
-        # ========== 分页拉取所有数据 ==========
-        all_issues = []  # 存储所有分页的 issue
+        all_issues = []
+
         while True:
             try:
-                r = self.session.get(
-                    url,
-                    params=params,
-                    timeout=10
-                )
+                r = self.session.get(url, params=params, timeout=15)
                 r.raise_for_status()
                 page_issues = r.json()
 
-                # 无更多数据时退出循环（分页结束）
                 if not page_issues:
                     break
 
-                # 处理当前页的 issue 并加入总列表
                 for item in page_issues:
-                    issue_created_at = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
-                    all_issues.append({
-                        "platform": "gitlab",
-                        "issue_id": item.get("iid"),
-                        "global_id": item.get("id"),
-                        "title": item.get("title"),
-                        "body": item.get("description") or "",
-                        "created_at": item.get("created_at"),
-                        "updated_at": item.get("updated_at"),
-                        "state": item.get("state"),
-                        "url": item.get("web_url"),
-                        "owner": self.owner,
-                        "repo": self.repo
-                    })
+                    # 获取 GitLab 的 iid (项目内唯一 ID) 或 id (全局唯一 ID)
+                    # 建议使用 iid 作为 issue_id，因为这通常是页面上显示的编号
+                    issue_id = item.get("iid")
 
-                # 页码+1，拉取下一页
+                    # 2. 核心：去重检查器逻辑
+                    # 检查此 repo_id 下是否已经存在该 issue_id
+                    if self.duplicate_checker and self.duplicate_checker(
+                        self.repo_id, issue_id
+                    ):
+                        logger.info(f"[GitLab] 跳过已存在数据: {issue_id}")
+                        continue
+
+                    raw_labels = item.get("labels", [])
+                    labels_str = ", ".join(raw_labels) if raw_labels else ""
+
+                    # 构造结构化数据
+                    all_issues.append(
+                        {
+                            "platform": "gitlab",
+                            "issue_id": issue_id,
+                            "title": item.get("title"),
+                            "body": item.get("description") or "",
+                            "labels": labels_str,
+                            "created_at": item.get("created_at"),
+                            "url": item.get("web_url"),
+                        }
+                    )
+
+                # 3. 分页控制
+                # 如果当前页返回的数据少于每页限制，说明已经是最后一页
+                if len(page_issues) < params["per_page"]:
+                    break
+
                 params["page"] += 1
 
+                # 礼貌抓取，避免触发速率限制
+                time.sleep(0.5)
+
             except requests.exceptions.RequestException as e:
-                raise RuntimeError(
-                    f"请求 GitLab API 失败（页码：{params['page']}）：{str(e)}\n"
-                    f"请求URL：{r.url}\n"
-                    f"响应状态码：{r.status_code}\n"
-                    f"响应内容：{r.text}"
-                )
+                logger.error(f"请求 GitLab 失败 (Page {params['page']}): {e}")
+                break
 
         return all_issues
-
-
-if __name__ == "__main__":
-    # 测试 1：使用 owner + repo 方式（修复后）
-    print("===== 测试 1：使用 owner + repo =====")
-    c1 = GitLabCollector(
-        token="glpat-FYEyhT-hoafBhXOiWixyn286MQp1Omo1NmdjCw.01.1204x33nu",  # 确保环境变量配置了有效 Token
-        owner="gnachman",
-        repo="iterm2"
-    )
-    result1 = c1.fetch_recent(state="opened", per_page=5, since="2025-12-07", until="2025-12-09")
-    print(f"GitLab 符合条件的 Issues 数量：{len(result1)}")
-    for issue in result1:
-        print(f"ID: {issue['issue_id']}, 标题: {issue['title']}, 创建时间: {issue['created_at']}")

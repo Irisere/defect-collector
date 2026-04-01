@@ -5,6 +5,6 @@ DEFAULT_SCHEMA = {
     "description": "",
     "version": "",
     "severity": "",
-    "steps_to_reproduce": [],
+    "steps_to_reproduce": "",
     "stack_trace": ""
 }

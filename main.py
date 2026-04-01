@@ -1,51 +1,63 @@
 # main.py（FastAPI主文件）
-import uvicorn
 import logging
+import os
+from datetime import date
+from typing import Union
+
+import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
-from datetime import date
-from typing import Optional, Union
 
 from pipeline.pipeline_runner import run_once
 from storage.mysql_client import MySQLClient
 
+
 # ========== 初始化配置 ==========
-app = FastAPI(
-    title="缺陷采集流水线接口",
-    description="将run_once函数封装为HTTP接口，支持采集仓库Issue",
-    version="1.0.0"
-)
-# 初始化内置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),  # 控制台输出
-        logging.FileHandler("collect_api.log", encoding="utf-8")  # 日志文件
-    ]
-)
+# 初始化日志
+def setup_logging():
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+
+    # 清除之前可能存在的 handlers（防止重复）
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+
+    logging.basicConfig(
+        level=getattr(logging, log_level),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler("collect_api.log", mode="a", encoding="utf-8"),
+        ],
+    )
+
+
+setup_logging()
 logger = logging.getLogger("collect_api")
 
 # 初始化数据库客户端（若run_once依赖）
 db_client = MySQLClient(
-    host="localhost",
-    port=3306,
-    user="root",
-    password="12345678",
-    db="defects_db"
+    host="localhost", port=3306, user="root", password="12345678", db="defects_db"
+)
+
+app = FastAPI(
+    title="缺陷采集流水线接口",
+    description="将run_once函数封装为HTTP接口，支持采集仓库Issue",
+    version="1.0.0",
 )
 
 
 # ========== 接口定义 ==========
-@app.get("/api/collect/issue", summary="采集单个仓库的缺陷Issue", response_class=JSONResponse)
+@app.get(
+    "/api/collect/issue", summary="采集单个仓库的缺陷Issue", response_class=JSONResponse
+)
 async def collect_issue(
-        owner: str = Query(..., description="仓库所属者/组织名，如Tencent"),
-        repo: str = Query(..., description="仓库名，如WeUI"),
-        state: str = Query("open", description="Issue状态，可选open/closed/all"),
-        platform: str = Query(None, description="平台类型，可选gitee/github/gitlab"),
-        since: Union[str, date] = Query(None, description="起始时间，格式YYYY-MM-DD"),
-        until: Union[str, date] = Query(None, description="结束时间，格式YYYY-MM-DD"),
-        repo_id: str = Query(..., description="仓库唯一标识ID，如1123")
+    owner: str = Query(..., description="仓库所属者/组织名，如Tencent"),
+    repo: str = Query(..., description="仓库名，如WeUI"),
+    state: str = Query("open", description="Issue状态，可选open/closed/all"),
+    platform: str = Query(None, description="平台类型，可选gitee/github/gitlab"),
+    since: Union[str, date] = Query(None, description="起始时间，格式YYYY-MM-DD"),
+    until: Union[str, date] = Query(None, description="结束时间，格式YYYY-MM-DD"),
+    repo_id: str = Query(..., description="仓库唯一标识ID，如1123"),
 ):
     """
     封装run_once函数为GET接口，参数通过Query传递
@@ -64,7 +76,7 @@ async def collect_issue(
             platform=platform,
             since=since_str,
             until=until_str,
-            repo_id=repo_id
+            repo_id=repo_id,
         )
 
         # 3. 构造成功响应
@@ -77,8 +89,8 @@ async def collect_issue(
                 "platform": platform,
                 "update_num": update_num,  # 新增/更新的条数
                 "since": since_str,
-                "until": until_str
-            }
+                "until": until_str,
+            },
         }
 
     except ValueError as e:
@@ -101,6 +113,7 @@ async def run_once_async(**kwargs) -> int:
     将同步的run_once转为异步调用（避免阻塞FastAPI事件循环）
     """
     import asyncio
+
     # 若run_once是CPU密集型/IO阻塞型，用线程池执行
     return await asyncio.to_thread(run_once, **kwargs)
 
@@ -113,5 +126,5 @@ if __name__ == "__main__":
         host="0.0.0.0",  # 允许外部访问
         port=8000,
         reload=True,  # 开发环境热重载，生产环境关闭
-        log_level="info"
+        log_level="info",
     )
