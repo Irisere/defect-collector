@@ -1,5 +1,6 @@
 # pipeline/pipeline_runner.py
 import logging
+import time
 
 from collectors.gitee_collector import GiteeCollector
 from collectors.github_collector import GithubCollector
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 def process_issue(issue):
+    start_time = time.time()
     raw = issue.get("title", "") + "\n" + issue.get("body", "")  # 原始数据
     cleaned = strip_html_markdown(raw)
     cleaned = remove_noise(cleaned)
@@ -56,6 +58,10 @@ def process_issue(issue):
         "url": issue.get("url"),
         "created_at": issue.get("created_at"),
     }
+    # 计算耗时并打印日志
+    end_time = time.time()
+    latency = end_time - start_time
+    logger.info(f"Issue {issue.get('issue_id')} 处理完成，共耗时: {latency:.2f} 秒")
     return doc
 
 
@@ -65,12 +71,9 @@ def run_once(owner, repo, since, until, platform, state, repo_id):
         case "github":
             token = client.get_token("github")
             collector = GithubCollector(token=token, owner=owner, repo=repo)
-            print("处理github仓库的Issue")
         case "gitee":
             token = client.get_token("gitee")
             collector = GiteeCollector(token=token, owner=owner, repo=repo)
-            print("token:" + token)
-            print("处理gitee仓库的Issue")
         case "gitlab":
             token = client.get_token("gitlab")
             collector = GitLabCollector(token=token, owner=owner, repo=repo)

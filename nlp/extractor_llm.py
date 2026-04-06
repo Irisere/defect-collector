@@ -171,7 +171,7 @@ def detect_language(text: str) -> str:
     chinese_chars = re.findall(r"[\u4e00-\u9fff]", clean_text)
 
     # 策略：只要中文字符超过 5 个，或者占比超过 10% (在清理后的文本中)
-    if len(chinese_chars) >= 5:
+    if len(chinese_chars) >= 3:
         return "zh"
 
     total_chars = len(re.sub(r"\s+", "", clean_text))

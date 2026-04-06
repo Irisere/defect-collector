@@ -84,7 +84,7 @@ class GiteeCollector(CollectorBase):
                     # 只有注入了 duplicate_checker 且校验通过才继续
                     if hasattr(self, "duplicate_checker") and self.duplicate_checker:
                         if self.duplicate_checker(self.repo_id, issue_id):
-                            logger.info(f"跳过已存在的数据: {issue_id}")
+                            logger.info(f"[Gitee] 跳过已存在的数据: {issue_id}")
                             continue
 
                     # 3. 时间过滤（因为 API 的 since 是针对 updated_at 的）

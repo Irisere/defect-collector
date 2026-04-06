@@ -31,13 +31,14 @@ class GitLabCollector(CollectorBase):
             self.session.headers.update({"PRIVATE-TOKEN": self.token})
 
     def fetch_recent(self, state="opened", per_page=100, since=None, until=None):
-        """
-        参照 GitHub 逻辑：分页抓取 + 服务端过滤 + 本地去重
-        """
+
         if state == "open":
             state = "opened"
+
         if not (self.project_path or (self.owner and self.repo)):
             raise ValueError("必须指定 GitLab 仓库的 owner + repo 或 project_id！")
+
+        logger.info(f"开始采集 GitLab 仓库: {self.owner}/{self.repo}")
 
         project_path = self.project_path or f"{self.owner}/{self.repo}"
         url = f"{GITLAB_API}/projects/{project_path}/issues"
