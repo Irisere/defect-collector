@@ -1,5 +1,5 @@
 # nlp/schema.py
-# JSON 字段 schema（示例）
+# JSON 字段 schema
 DEFAULT_SCHEMA = {
     "title": "",
     "description": "",

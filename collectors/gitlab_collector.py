@@ -43,8 +43,7 @@ class GitLabCollector(CollectorBase):
         project_path = self.project_path or f"{self.owner}/{self.repo}"
         url = f"{GITLAB_API}/projects/{project_path}/issues"
 
-        # 1. 构建请求参数（GitLab 不像 GitHub 有专门的 Search API 语法，
-        # 但普通 Issues API 支持时间过滤参数）
+        # 1. 构建请求参数（GitLab 不像 GitHub 有专门的 Search API 语法，但普通 Issues API 支持时间过滤参数）
         params = {
             "state": state,
             "order_by": "created_at",
@@ -72,7 +71,7 @@ class GitLabCollector(CollectorBase):
 
                 for item in page_issues:
                     # 获取 GitLab 的 iid (项目内唯一 ID) 或 id (全局唯一 ID)
-                    # 建议使用 iid 作为 issue_id，因为这通常是页面上显示的编号
+                    # 这里使用 iid 作为 issue_id，因为这通常是页面上显示的编号
                     issue_id = item.get("iid")
 
                     # 2. 核心：去重检查器逻辑
@@ -106,7 +105,7 @@ class GitLabCollector(CollectorBase):
 
                 params["page"] += 1
 
-                # 礼貌抓取，避免触发速率限制
+                # 避免触发速率限制
                 time.sleep(0.5)
 
             except requests.exceptions.RequestException as e:

@@ -80,7 +80,7 @@ class GiteeCollector(CollectorBase):
 
                     issue_id = item.get("number")
 
-                    # 2. 去重检查器逻辑（核心改进点）
+                    # 2. 去重检查器逻辑
                     # 只有注入了 duplicate_checker 且校验通过才继续
                     if hasattr(self, "duplicate_checker") and self.duplicate_checker:
                         if self.duplicate_checker(self.repo_id, issue_id):
